@@ -5,15 +5,33 @@ Phase 2 (Build):    download only the selected clips via yt-dlp download_ranges
 """
 
 # ── SSL patch — must be FIRST, before any network imports ─────────────────────
-# HF Spaces / Docker environments suffer SSL: UNEXPECTED_EOF_WHILE_READING
-# because of network proxying. Patch ssl, requests, and urllib3 globally.
+# Python 3.12 + OpenSSL 3.x raises SSLEOFError (UNEXPECTED_EOF_WHILE_READING)
+# when servers close SSL connections without a proper TLS close_notify alert.
+# Fix: patch every SSLContext to set OP_IGNORE_UNEXPECTED_EOF so OpenSSL
+# treats EOF as a normal connection close instead of an error.
 import ssl
 import os
 
-ssl._create_default_https_context = ssl._create_unverified_context
 os.environ.setdefault("PYTHONHTTPSVERIFY",  "0")
 os.environ.setdefault("REQUESTS_CA_BUNDLE", "")
 os.environ.setdefault("CURL_CA_BUNDLE",     "")
+
+# OP_IGNORE_UNEXPECTED_EOF  — Python 3.12 specific flag (value 0x800 on older builds)
+# OP_LEGACY_SERVER_CONNECT  — allows connections to servers without RFC 5746
+_OP_IGNORE_EOF = getattr(ssl, "OP_IGNORE_UNEXPECTED_EOF", 0x00000800)
+_OP_LEGACY     = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x00000004)
+
+_orig_ssl_init = ssl.SSLContext.__init__
+def _patched_ssl_init(self, *args, **kwargs):
+    _orig_ssl_init(self, *args, **kwargs)
+    self.check_hostname = False
+    self.verify_mode    = ssl.CERT_NONE
+    try:  self.options |= _OP_IGNORE_EOF   # treat EOF as normal close
+    except Exception: pass
+    try:  self.options |= _OP_LEGACY       # allow legacy TLS servers
+    except Exception: pass
+ssl.SSLContext.__init__              = _patched_ssl_init
+ssl._create_default_https_context   = ssl._create_unverified_context
 
 try:
     import urllib3
@@ -23,10 +41,6 @@ except Exception:
 
 try:
     import requests
-    from requests.adapters import HTTPAdapter
-    _s = requests.Session()
-    _s.verify = False
-    # Monkey-patch so all requests.get / requests.post skip verification
     _orig_request = requests.Session.request
     def _patched_request(self, *args, **kwargs):
         kwargs.setdefault("verify", False)
