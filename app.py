@@ -3,7 +3,40 @@ AI Video Summarizer — two-phase pipeline.
 Phase 1 (Analyze):  transcript + metadata + scoring + summary  — no download needed
 Phase 2 (Build):    download only the selected clips via yt-dlp download_ranges
 """
-import os, re, json, uuid, time, queue, shutil, tempfile, threading, subprocess
+
+# ── SSL patch — must be FIRST, before any network imports ─────────────────────
+# HF Spaces / Docker environments suffer SSL: UNEXPECTED_EOF_WHILE_READING
+# because of network proxying. Patch ssl, requests, and urllib3 globally.
+import ssl
+import os
+
+ssl._create_default_https_context = ssl._create_unverified_context
+os.environ.setdefault("PYTHONHTTPSVERIFY",  "0")
+os.environ.setdefault("REQUESTS_CA_BUNDLE", "")
+os.environ.setdefault("CURL_CA_BUNDLE",     "")
+
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except Exception:
+    pass
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    _s = requests.Session()
+    _s.verify = False
+    # Monkey-patch so all requests.get / requests.post skip verification
+    _orig_request = requests.Session.request
+    def _patched_request(self, *args, **kwargs):
+        kwargs.setdefault("verify", False)
+        return _orig_request(self, *args, **kwargs)
+    requests.Session.request = _patched_request
+except Exception:
+    pass
+# ──────────────────────────────────────────────────────────────────────────────
+
+import re, json, uuid, time, queue, shutil, tempfile, threading, subprocess
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Tuple, Optional
@@ -15,14 +48,27 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 app  = Flask(__name__)
 jobs: dict = {}
 
-# ── Common yt-dlp options (SSL bypass for cloud/Docker environments) ──────────
+# ── Common yt-dlp options (SSL + HF Spaces compatibility) ────────────────────
 _YDL_BASE: dict = {
     "quiet":              True,
     "no_warnings":        True,
-    "nocheckcertificate": True,   # fixes SSL: UNEXPECTED_EOF_WHILE_READING on HF Spaces
+    "nocheckcertificate": True,    # skip TLS cert verification
     "socket_timeout":     30,
-    "retries":            3,
-    "fragment_retries":   3,
+    "retries":            5,
+    "fragment_retries":   5,
+    # Android client avoids YouTube web-API SSL issues in cloud environments
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "web"],
+        }
+    },
+    "http_headers": {
+        "User-Agent": (
+            "Mozilla/5.0 (Linux; Android 11; Pixel 5) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/90.0.4430.91 Mobile Safari/537.36"
+        )
+    },
 }
 
 # ── Global SBERT model (pre-warmed at startup for fast summaries) ─────────────

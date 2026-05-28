@@ -27,6 +27,12 @@ RUN mkdir -p output
 
 # HF Spaces requires port 7860
 ENV PORT=7860
+
+# Disable SSL cert verification for cloud/Docker network environments
+ENV PYTHONHTTPSVERIFY=0
+ENV REQUESTS_CA_BUNDLE=""
+ENV CURL_CA_BUNDLE=""
+
 EXPOSE 7860
 
 CMD ["python", "app.py"]
