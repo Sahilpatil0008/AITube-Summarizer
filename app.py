@@ -15,6 +15,16 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 app  = Flask(__name__)
 jobs: dict = {}
 
+# ── Common yt-dlp options (SSL bypass for cloud/Docker environments) ──────────
+_YDL_BASE: dict = {
+    "quiet":              True,
+    "no_warnings":        True,
+    "nocheckcertificate": True,   # fixes SSL: UNEXPECTED_EOF_WHILE_READING on HF Spaces
+    "socket_timeout":     30,
+    "retries":            3,
+    "fragment_retries":   3,
+}
+
 # ── Global SBERT model (pre-warmed at startup for fast summaries) ─────────────
 _sbert      = None
 _sbert_lock = threading.Lock()
@@ -101,9 +111,9 @@ def download_audio_for_analysis(url: str, out_path: str,
     import yt_dlp
     try:
         ydl_opts = {
+            **_YDL_BASE,
             "format":          "bestaudio[ext=m4a]/bestaudio",
             "outtmpl":         out_path + ".%(ext)s",
-            "quiet":           True, "no_warnings": True,
             "ffmpeg_location": ffmpeg_dir,
             "download_ranges": yt_dlp.utils.download_range_func(None, [(0, max_sec)]),
         }
@@ -246,11 +256,11 @@ def generate_summary(segs: list, title: str = "", n: int = 5) -> str:
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.cluster import KMeans
 
-        # ── Pre-filter to top 80 by TF-IDF (faster) ──────────────────────
-        if len(texts) > 80:
-            vec    = TfidfVectorizer(stop_words="english", max_features=6000)
+        # ── Pre-filter to top 50 by TF-IDF (fast on CPU) ─────────────────
+        if len(texts) > 50:
+            vec    = TfidfVectorizer(stop_words="english", max_features=4000)
             scores = np.asarray(vec.fit_transform(texts).mean(axis=1)).flatten()
-            keep   = np.argsort(scores)[-80:]
+            keep   = np.argsort(scores)[-50:]
             texts  = [texts[i] for i in keep]
             starts = [starts[i] for i in keep]
 
@@ -511,7 +521,7 @@ def run_analyze(url: str, job_id: str, log_q: queue.Queue):
 
         def fetch_meta():
             try:
-                with ytdlp.YoutubeDL({"quiet": True, "no_warnings": True,
+                with ytdlp.YoutubeDL({**_YDL_BASE,
                                        "skip_download": True, "ffmpeg_location": ffmpeg_dir}) as ydl:
                     info = ydl.extract_info(url, download=False)
                 meta.update({
@@ -590,7 +600,7 @@ def run_analyze(url: str, job_id: str, log_q: queue.Queue):
         if segs and tq >= 0.25:
             emit("📝 Generating semantic summary (sentence-transformers + clustering)...")
             t0 = time.time()
-            summary = generate_summary(segs, title=title, n=5)
+            summary = generate_summary(segs, title=title, n=3)
             emit(f"✅ Summary generated ({time.time()-t0:.1f}s)")
         elif not segs:
             emit("   ℹ No transcript — summary unavailable for this video")
@@ -712,10 +722,10 @@ def run_build(job_id: str, log_q: queue.Queue):
                     emit("   ✅ Download finished, merging streams...")
 
             ydl_opts = {
+                **_YDL_BASE,
                 "format":              "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                 "merge_output_format": "mp4",
                 "outtmpl":             raw_path,
-                "quiet":               True, "no_warnings": True,
                 "ffmpeg_location":     ffmpeg_dir,
                 "progress_hooks":      [hook],
             }
