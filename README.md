@@ -13,6 +13,32 @@ short_description: AI YouTube highlight generator
 
 > **Analyze first. Download only the best moments.**
 
+---
+
+## ⚠️ HF Spaces Setup — Required for YouTube Access
+
+YouTube blocks requests from cloud provider IPs (AWS, GCP, HF infrastructure).  
+You **must** add your YouTube cookies as an HF Space secret to use this app on Spaces.
+
+### Step-by-step: Add YouTube Cookies
+
+**1. Export cookies from your browser**
+- Install the Chrome extension **"Get cookies.txt LOCALLY"** ([link](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc))
+- Go to **https://www.youtube.com** (make sure you're logged in)
+- Click the extension icon → **Export** → saves `youtube.com_cookies.txt`
+
+**2. Add as HF Space secret**
+- Go to your Space → **Settings** → **Variables and secrets**
+- Click **New secret**
+- Name: `YOUTUBE_COOKIES`
+- Value: paste the **entire content** of the `youtube.com_cookies.txt` file
+- Click **Save**
+
+**3. Restart the Space**
+- The Space will rebuild and pick up the cookies automatically
+
+> **Note:** Cookies expire after ~1–2 months. Repeat the process if you get "Sign in" errors again.
+
 An AI-powered YouTube highlight generator that creates smart 90-second clips from any video — Speech, Music, Mixed content, and Shorts — without re-encoding, preserving original quality.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)

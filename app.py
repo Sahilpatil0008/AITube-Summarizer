@@ -48,18 +48,34 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 app  = Flask(__name__)
 jobs: dict = {}
 
-# ── Common yt-dlp options (SSL + HF Spaces compatibility) ────────────────────
+# ── YouTube cookie support (required on cloud/HF Spaces — YouTube blocks IPs) ─
+# Set the HF Space secret  YOUTUBE_COOKIES  to the content of a Netscape
+# cookies.txt exported from a logged-in Chrome/Firefox session.
+_COOKIE_FILE = "/tmp/yt_cookies.txt"
+
+def _setup_cookies() -> bool:
+    """Write YOUTUBE_COOKIES env-secret to a temp file. Returns True if available."""
+    content = os.environ.get("YOUTUBE_COOKIES", "").strip()
+    if content:
+        with open(_COOKIE_FILE, "w", encoding="utf-8") as f:
+            f.write(content)
+        return True
+    return False
+
+_HAS_COOKIES = _setup_cookies()
+
+# ── Common yt-dlp options ──────────────────────────────────────────────────────
 _YDL_BASE: dict = {
     "quiet":              True,
     "no_warnings":        True,
-    "nocheckcertificate": True,    # skip TLS cert verification
+    "nocheckcertificate": True,
     "socket_timeout":     30,
     "retries":            5,
     "fragment_retries":   5,
-    # Android client avoids YouTube web-API SSL issues in cloud environments
+    # Use multiple clients: tv_embedded is less restricted on cloud IPs
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"],
+            "player_client": ["tv_embedded", "android", "web"],
         }
     },
     "http_headers": {
@@ -70,6 +86,10 @@ _YDL_BASE: dict = {
         )
     },
 }
+
+# Attach cookies if available (bypasses YouTube cloud-IP blocks)
+if _HAS_COOKIES:
+    _YDL_BASE["cookiefile"] = _COOKIE_FILE
 
 # ── Global SBERT model (pre-warmed at startup for fast summaries) ─────────────
 _sbert      = None
@@ -552,7 +572,14 @@ def run_analyze(url: str, job_id: str, log_q: queue.Queue):
 
         def fetch_tr():
             try:
-                ytt = YouTubeTranscriptApi()
+                # Pass cookies when available (bypasses YouTube cloud-IP blocks)
+                ytt_kwargs = {}
+                if _HAS_COOKIES and os.path.exists(_COOKIE_FILE):
+                    try:
+                        ytt_kwargs["cookies"] = _COOKIE_FILE
+                    except Exception:
+                        pass
+                ytt = YouTubeTranscriptApi(**ytt_kwargs)
                 try:
                     f = ytt.fetch(vid)
                 except NoTranscriptFound:
@@ -562,7 +589,13 @@ def run_analyze(url: str, job_id: str, log_q: queue.Queue):
                     f = first.fetch()
                 tr["segs"] = [{"text": s.text, "start": s.start, "duration": s.duration} for s in f]
             except Exception as e:
-                emit(f"   No transcript: {e}")
+                err = str(e)
+                if "IP" in err or "blocked" in err or "Sign in" in err or "bot" in err:
+                    emit("   ⚠️ YouTube blocked this IP (cloud provider restriction).")
+                    if not _HAS_COOKIES:
+                        emit("   👉 Add YOUTUBE_COOKIES secret in HF Space settings to fix this.")
+                else:
+                    emit(f"   No transcript: {err[:120]}")
                 tr["segs"] = []
 
         def fetch_meta():
@@ -588,7 +621,13 @@ def run_analyze(url: str, job_id: str, log_q: queue.Queue):
                     "video_url":   f"https://www.youtube.com/watch?v={vid}",
                 })
             except Exception as e:
-                emit(f"   Metadata fallback: {e}")
+                err = str(e)
+                if "Sign in" in err or "bot" in err or "IP" in err or "blocked" in err:
+                    emit("   ⚠️ YouTube is blocking this cloud IP.")
+                    if not _HAS_COOKIES:
+                        emit("   👉 Fix: add YOUTUBE_COOKIES secret in HF Space → Settings → Secrets.")
+                else:
+                    emit(f"   Metadata unavailable: {err[:120]}")
                 meta.update({"title": "", "description": "", "tags": "", "duration": 0})
 
         t1 = threading.Thread(target=fetch_tr,   daemon=True)
