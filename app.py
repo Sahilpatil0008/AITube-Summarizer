@@ -178,7 +178,7 @@ def download_audio_for_analysis(url: str, out_path: str,
     try:
         ydl_opts = {
             **_YDL_BASE,
-            "format":          "bestaudio[ext=m4a]/bestaudio",
+            "format":          "bestaudio/best",
             "outtmpl":         out_path + ".%(ext)s",
             "ffmpeg_location": ffmpeg_dir,
             "download_ranges": yt_dlp.utils.download_range_func(None, [(0, max_sec)]),
@@ -808,7 +808,7 @@ def run_build(job_id: str, log_q: queue.Queue):
 
             ydl_opts = {
                 **_YDL_BASE,
-                "format":              "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "format":              "bestvideo+bestaudio/best",
                 "merge_output_format": "mp4",
                 "outtmpl":             raw_path,
                 "ffmpeg_location":     ffmpeg_dir,
