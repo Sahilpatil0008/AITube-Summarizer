@@ -6,7 +6,7 @@ colorTo: gray
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: AI-powered YouTube highlight generator — analyze first, download only the best moments
+short_description: AI YouTube highlight generator
 ---
 
 # 🎬 AITube Summarizer
