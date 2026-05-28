@@ -25,7 +25,8 @@ COPY templates/ templates/
 # Output directory for generated videos
 RUN mkdir -p output
 
-# HF Spaces listens on port 7860
+# HF Spaces requires port 7860
+ENV PORT=7860
 EXPOSE 7860
 
 CMD ["python", "app.py"]
