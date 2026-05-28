@@ -1,3 +1,14 @@
+---
+title: AITube Summarizer
+emoji: 🎬
+colorFrom: red
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: AI-powered YouTube highlight generator — analyze first, download only the best moments
+---
+
 # 🎬 AITube Summarizer
 
 > **Analyze first. Download only the best moments.**
