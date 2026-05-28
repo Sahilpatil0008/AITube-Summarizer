@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AI Video Summarizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet"/>
+<style>
+/* ─── YouTube Design Tokens ───────────────────────────────────────────────── */
+:root{
+  --bg:#0f0f0f; --s1:#212121; --s2:#272727; --s3:#3f3f3f;
+  --br:#303030; --br2:#3f3f3f;
+  --red:#ff0000; --red-h:#cc0000; --red-dim:rgba(255,0,0,.1);
+  --t1:#f1f1f1; --t2:#aaaaaa; --t3:#717171;
+  --mono:'JetBrains Mono','Courier New',monospace;
+  --nav-h:56px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Roboto',Arial,sans-serif;background:var(--bg);color:var(--t1);min-height:100vh}
+
+/* ─── Top Loading Bar ─────────────────────────────────────────────────────── */
+#loadBar{
+  position:fixed;top:0;left:0;z-index:9999;
+  height:3px;background:var(--red);width:0;
+  transition:width .3s ease,opacity .4s ease;pointer-events:none;
+}
+#loadBar.indeterminate{animation:loadSlide 1.6s ease-in-out infinite;width:100%!important}
+@keyframes loadSlide{
+  0%  {transform:translateX(-100%);opacity:1}
+  50% {transform:translateX(0);    opacity:1}
+  100%{transform:translateX(100%); opacity:0}
+}
+
+/* ─── Navigation ──────────────────────────────────────────────────────────── */
+.yt-nav{
+  position:sticky;top:0;z-index:500;
+  height:var(--nav-h);background:var(--bg);
+  border-bottom:1px solid #282828;
+  display:flex;align-items:center;padding:0 16px;gap:8px;
+}
+.yt-logo{display:flex;align-items:center;gap:4px;text-decoration:none;flex-shrink:0;margin-right:8px}
+.yt-logo-box{width:32px;height:22px;background:var(--red);border-radius:6px;display:grid;place-items:center}
+.yt-logo-box svg{fill:#fff}
+.yt-logo-name{font-size:20px;font-weight:700;color:var(--t1);letter-spacing:-.5px;line-height:1}
+.yt-logo-name sup{font-size:10px;font-weight:400;color:var(--t3);vertical-align:top;margin-top:4px;margin-left:1px}
+
+.yt-search-form{flex:1;max-width:580px;display:flex;align-items:center;height:40px}
+.yt-search-box{
+  flex:1;display:flex;align-items:center;gap:8px;
+  background:#121212;border:1px solid var(--br2);
+  border-radius:40px 0 0 40px;height:100%;padding:0 16px;
+  transition:border-color .15s,box-shadow .15s;
+}
+.yt-search-box:focus-within{border-color:#1c62b9;box-shadow:inset 0 0 0 1px #1c62b9}
+.yt-search-box input{
+  flex:1;min-width:0;background:none;border:none;outline:none;
+  font-family:'Roboto',Arial,sans-serif;font-size:16px;color:var(--t1);
+}
+.yt-search-box input::placeholder{color:var(--t3)}
+.yt-search-btn{
+  width:64px;height:40px;background:var(--s2);
+  border:1px solid var(--br2);border-left:none;
+  border-radius:0 40px 40px 0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s;flex-shrink:0;
+}
+.yt-search-btn:hover{background:var(--s3)}
+.yt-search-btn:disabled{opacity:.4;cursor:not-allowed}
+.yt-search-btn svg{fill:var(--t1)}
+
+.yt-nav-icons{display:flex;gap:4px;margin-left:auto;flex-shrink:0}
+.yt-icon-btn{
+  width:40px;height:40px;border-radius:50%;border:none;
+  background:none;cursor:pointer;display:grid;place-items:center;
+  transition:background .15s;color:var(--t1);
+}
+.yt-icon-btn:hover{background:rgba(255,255,255,.1)}
+.yt-icon-btn svg{fill:var(--t1)}
+
+/* ─── Layout ──────────────────────────────────────────────────────────────── */
+.yt-page{max-width:1280px;margin:0 auto;padding:0 16px 24px}
+
+/* Home chips row (YouTube filter bar) */
+.yt-chips-row{
+  position:sticky;top:var(--nav-h);z-index:100;
+  background:var(--bg);border-bottom:1px solid #282828;
+  padding:12px 0 8px;display:flex;gap:8px;overflow-x:auto;
+  scrollbar-width:none;-ms-overflow-style:none;
+}
+.yt-chips-row::-webkit-scrollbar{display:none}
+.yt-chip{
+  height:32px;padding:0 12px;background:var(--s2);
+  border:none;border-radius:8px;cursor:default;
+  font-family:'Roboto',Arial,sans-serif;font-size:14px;font-weight:500;
+  color:var(--t1);white-space:nowrap;display:inline-flex;align-items:center;gap:5px;
+  flex-shrink:0;
+}
+.yt-chip.active{background:var(--t1);color:#0f0f0f}
+
+/* Hero (idle state) */
+.yt-hero{
+  text-align:center;padding:60px 0 40px;max-width:640px;margin:0 auto;
+}
+.yt-hero h1{font-size:32px;font-weight:700;letter-spacing:-.3px;line-height:1.3;margin-bottom:12px}
+.yt-hero h1 em{color:var(--red);font-style:normal}
+.yt-hero p{font-size:15px;color:var(--t2);line-height:1.65}
+
+/* ─── Two-column watch layout ─────────────────────────────────────────────── */
+.yt-watch{display:grid;grid-template-columns:minmax(0,1fr) 402px;gap:24px;padding-top:20px}
+@media(max-width:1024px){.yt-watch{grid-template-columns:1fr}}
+
+/* ─── Primary column ──────────────────────────────────────────────────────── */
+/* Video player */
+.yt-player-wrap{
+  width:100%;background:#000;border-radius:12px;overflow:hidden;
+  aspect-ratio:16/9;position:relative;margin-bottom:12px;
+}
+.yt-player-wrap video{
+  width:100%;height:100%;display:block;background:#000;
+  object-fit:contain;
+}
+
+/* Below-player metadata */
+.yt-video-title{
+  font-size:20px;font-weight:400;line-height:1.4;
+  color:var(--t1);margin-bottom:10px;cursor:pointer;
+}
+.yt-video-title:hover{color:var(--t2)}
+
+/* Primary info row: views · date + actions */
+.yt-info-row{
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:8px;margin-bottom:12px;
+}
+.yt-views-date{font-size:14px;color:var(--t2);line-height:1.6}
+.yt-views-date b{font-weight:500;color:var(--t1)}
+
+/* Action buttons row */
+.yt-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* Like/dislike pill group */
+.yt-like-group{
+  display:flex;background:var(--s2);
+  border-radius:18px;overflow:hidden;flex-shrink:0;
+}
+.yt-like-btn,.yt-dislike-btn{
+  height:36px;padding:0 12px;border:none;background:none;
+  font-family:'Roboto',Arial,sans-serif;
+  font-size:14px;font-weight:500;color:var(--t1);
+  cursor:pointer;display:flex;align-items:center;gap:6px;
+  transition:background .15s;
+}
+.yt-like-btn:hover,.yt-dislike-btn:hover{background:rgba(255,255,255,.1)}
+.yt-dislike-btn{border-left:1px solid var(--br2)}
+.yt-like-btn svg,.yt-dislike-btn svg,.yt-act-btn svg{fill:var(--t1)}
+
+/* Share / Clip / Save / More pills */
+.yt-act-btn{
+  height:36px;padding:0 16px;background:var(--s2);
+  border:none;border-radius:18px;
+  font-family:'Roboto',Arial,sans-serif;
+  font-size:14px;font-weight:500;color:var(--t1);
+  cursor:pointer;display:flex;align-items:center;gap:6px;
+  transition:background .15s;white-space:nowrap;
+}
+.yt-act-btn:hover{background:var(--s3)}
+.yt-act-btn.primary{background:var(--t1);color:#0f0f0f}
+.yt-act-btn.primary svg{fill:#0f0f0f}
+.yt-act-btn.primary:hover{background:#d0d0d0}
+
+/* Separator */
+.yt-sep{height:1px;background:var(--br);margin:12px 0}
+
+/* Channel section */
+.yt-channel{display:flex;align-items:center;gap:12px;padding:12px 0;flex-wrap:wrap}
+.yt-ch-avatar{
+  width:40px;height:40px;border-radius:50%;
+  background:var(--s2);display:grid;place-items:center;
+  font-size:15px;font-weight:700;color:var(--t2);flex-shrink:0;overflow:hidden;
+}
+.yt-ch-info{flex:1;min-width:140px}
+.yt-ch-name{font-size:16px;font-weight:500;color:var(--t1);display:flex;align-items:center;gap:5px}
+.yt-ch-subs{font-size:13px;color:var(--t2);margin-top:2px}
+.yt-subscribe-btn{
+  height:36px;padding:0 16px;
+  background:var(--t1);color:#0f0f0f;
+  border:none;border-radius:18px;
+  font-family:'Roboto',Arial,sans-serif;
+  font-size:14px;font-weight:700;cursor:pointer;
+  transition:background .15s;white-space:nowrap;flex-shrink:0;
+}
+.yt-subscribe-btn:hover{background:#d0d0d0}
+.yt-subscribe-btn.subscribed{background:var(--s2);color:var(--t1)}
+.yt-subscribe-btn.subscribed:hover{background:var(--s3)}
+
+/* Description / Summary box */
+.yt-desc{
+  background:var(--s2);border-radius:12px;
+  padding:12px 16px;margin-top:12px;cursor:pointer;
+  transition:background .15s;
+}
+.yt-desc:hover{background:var(--s3)}
+.yt-desc-meta{font-size:14px;font-weight:700;color:var(--t1);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.yt-ai-badge{
+  background:var(--red);color:#fff;
+  font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;
+}
+.yt-desc-body{
+  font-size:14px;color:var(--t1);line-height:1.7;
+  overflow:hidden;max-height:80px;position:relative;
+  transition:max-height .3s;
+}
+.yt-desc-body.expanded{max-height:600px}
+.yt-desc-fade{
+  position:absolute;bottom:0;left:0;right:0;height:40px;
+  background:linear-gradient(transparent,var(--s2));
+  pointer-events:none;transition:opacity .3s;
+}
+.yt-desc-body.expanded .yt-desc-fade{opacity:0}
+.yt-desc-more{font-size:14px;font-weight:700;color:var(--t1);margin-top:8px;display:block}
+
+/* ─── Secondary column (sidebar) ─────────────────────────────────────────── */
+.yt-sidebar{display:flex;flex-direction:column;gap:16px}
+
+/* Sidebar card */
+.yt-sb-card{background:var(--s1);border-radius:12px;overflow:hidden}
+.yt-sb-card-header{
+  padding:12px 16px;border-bottom:1px solid var(--br);
+  font-size:14px;font-weight:700;color:var(--t1);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.yt-sb-card-body{padding:16px}
+
+/* Stat items in sidebar */
+.yt-stat-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 0;border-bottom:1px solid var(--br);
+}
+.yt-stat-item:last-child{border-bottom:none}
+.yt-stat-label{font-size:13px;color:var(--t2)}
+.yt-stat-value{font-size:15px;font-weight:700;color:var(--t1)}
+.yt-stat-value.red{color:#ff4444}
+
+/* Type badge in sidebar */
+.yt-type-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  height:32px;padding:0 12px;border-radius:8px;
+  font-size:14px;font-weight:500;
+  border:none;
+}
+.yt-type-badge.speech{background:rgba(0,200,0,.15);color:#00e000}
+.yt-type-badge.music {background:rgba(255,193,7,.15);color:#ffc107}
+.yt-type-badge.mixed {background:rgba(255,87,34,.15);color:#ff7043}
+.yt-type-badge.short {background:rgba(33,150,243,.15);color:#42a5f5}
+
+/* ─── Analysis pipeline card ──────────────────────────────────────────────── */
+.yt-pipeline{background:var(--s1);border-radius:12px;overflow:hidden}
+.yt-pipeline-header{
+  padding:12px 16px;display:flex;align-items:center;gap:10px;
+  border-bottom:1px solid var(--br);
+}
+.yt-pipeline-title{font-size:14px;font-weight:700}
+.pipeline-bar{height:2px;background:var(--br);overflow:hidden}
+.pipeline-bar-fill{height:100%;background:var(--red);width:0;transition:width .3s}
+.pipeline-bar-fill.ind{animation:pbSlide 1.6s ease-in-out infinite}
+@keyframes pbSlide{0%{transform:translateX(-100%)}50%{transform:translateX(0)}100%{transform:translateX(100%)}}
+
+/* Steps inside pipeline */
+.pipe-steps{display:flex;align-items:flex-start;padding:16px;gap:0}
+.pipe-step{display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:60px}
+.pipe-line{flex:1;height:2px;background:var(--br);align-self:flex-start;margin-top:15px;border-radius:1px;transition:background .4s}
+.pipe-line.a{background:var(--red)}.pipe-line.d{background:#00b300}
+.pipe-dot{width:30px;height:30px;border-radius:50%;background:var(--s2);border:2px solid var(--br);
+  display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--t3);transition:all .3s;z-index:1}
+.pipe-step.a .pipe-dot{border-color:var(--red);background:var(--red-dim);color:var(--red);box-shadow:0 0 0 4px var(--red-dim)}
+.pipe-step.d .pipe-dot{border-color:#00b300;background:rgba(0,179,0,.1);color:#00e000}
+.pipe-step.e .pipe-dot{border-color:#f44;background:rgba(255,68,68,.1);color:#ff8888}
+.pipe-name{margin-top:6px;font-size:9px;font-weight:500;color:var(--t3);text-align:center;white-space:nowrap;transition:color .3s}
+.pipe-step.a .pipe-name{color:#ff8888}.pipe-step.d .pipe-name{color:#00b300}.pipe-step.e .pipe-name{color:#ff8888}
+.s-dot{width:12px;height:12px;border:2px solid var(--red-dim);border-top-color:var(--red);border-radius:50%;animation:spin .7s linear infinite}
+
+/* Log */
+.pipe-log{margin:0 16px 16px;background:#0a0a0a;border:1px solid #282828;border-radius:8px;overflow:hidden}
+.log-bar{padding:6px 12px;background:#181818;border-bottom:1px solid #282828;display:flex;align-items:center;gap:6px}
+.ld{width:10px;height:10px;border-radius:50%}.ld.r{background:#ff5f57}.ld.y{background:#ffbd2e}.ld.g{background:#28c840}
+.log-ttl{flex:1;text-align:center;font-size:10px;color:var(--t3);margin-left:-32px}
+.log-body{padding:10px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.85;max-height:180px;overflow-y:auto;color:#c8c8c8}
+.log-body::-webkit-scrollbar{width:3px}.log-body::-webkit-scrollbar-thumb{background:var(--br);border-radius:2px}
+.log-ln{animation:fadeUp .2s ease}.log-ln.ok{color:#72e072}.log-ln.hi{color:#ffb347}.log-ln.er{color:#ff6b6b}
+.log-cur{display:inline-block;width:6px;height:12px;background:var(--red);border-radius:1px;vertical-align:middle;animation:blink 1s step-end infinite}
+
+/* Status toast */
+.yt-toast{display:none;margin:0 16px 16px;padding:10px 14px;border-radius:8px;
+  font-size:13px;font-weight:500;align-items:center;gap:8px}
+.yt-toast.on{display:flex}
+.yt-toast.run{background:rgba(255,0,0,.07);border:1px solid rgba(255,0,0,.2);color:#ff8888}
+.yt-toast.ok {background:rgba(0,179,0,.07);border:1px solid rgba(0,179,0,.2);color:#72e072}
+.yt-toast.er {background:rgba(255,68,68,.07);border:1px solid rgba(255,68,68,.2);color:#ff8888}
+.yt-bspin{width:13px;height:13px;flex-shrink:0;border:2px solid rgba(255,255,255,.15);border-top-color:currentColor;border-radius:50%;animation:spin .7s linear infinite}
+
+/* Video info card (thumbnail + metadata, pre-build) */
+.vi-wrap{
+  display:none;background:var(--s1);border-radius:12px;
+  overflow:hidden;margin-bottom:16px;animation:fadeUp .3s ease;
+}
+.vi-wrap.on{display:flex}
+.vi-img{width:246px;height:138px;object-fit:cover;flex-shrink:0;background:var(--s2)}
+.vi-meta{flex:1;min-width:0;padding:14px}
+.vi-t{font-size:15px;font-weight:500;color:var(--t1);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;margin-bottom:8px}
+.vi-t a{color:inherit;text-decoration:none}.vi-t a:hover{color:var(--t2)}
+.vi-ch{display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.vi-av{width:22px;height:22px;border-radius:50%;background:var(--s2);display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--t2);flex-shrink:0}
+.vi-ch-name{font-size:13px;color:var(--t2)}
+.vi-chips{display:flex;flex-wrap:wrap;gap:5px}
+.vi-tag{background:var(--s2);border-radius:4px;padding:3px 8px;font-size:12px;color:var(--t2)}
+
+/* Create button */
+.yt-create-btn{
+  width:100%;height:48px;background:var(--red);color:#fff;
+  border:none;border-radius:24px;
+  font-family:'Roboto',Arial,sans-serif;font-size:15px;font-weight:700;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+  transition:background .15s;letter-spacing:.3px;
+}
+.yt-create-btn:hover{background:var(--red-h)}
+.yt-create-btn:disabled{background:var(--s3);color:var(--t3);cursor:not-allowed}
+
+/* ─── Modal ───────────────────────────────────────────────────────────────── */
+.yt-modal-bg{display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:16px}
+.yt-modal-bg.on{display:flex}
+.yt-modal{background:var(--s1);border:1px solid var(--br);border-radius:12px;padding:24px;width:100%;max-width:420px;animation:fadeUp .2s ease}
+.yt-modal-title{font-size:18px;font-weight:700;margin-bottom:4px}
+.yt-modal-sub{font-size:13px;color:var(--t2);margin-bottom:20px}
+.yt-dl-row{background:var(--s2);border-radius:8px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;cursor:default;transition:background .15s}
+.yt-dl-row:hover{background:var(--s3)}
+.yt-dl-ico{width:40px;height:40px;border-radius:8px;display:grid;place-items:center;font-size:20px;flex-shrink:0}
+.yt-dl-ico.r{background:var(--red-dim)}.yt-dl-ico.g{background:rgba(0,179,0,.1)}
+.yt-dl-name{font-size:14px;font-weight:500}
+.yt-dl-meta{font-size:12px;color:var(--t2);margin-top:2px}
+.yt-dl-save{background:var(--s3);border:none;border-radius:18px;padding:8px 16px;color:var(--t1);font-size:13px;font-weight:700;font-family:'Roboto',Arial,sans-serif;cursor:pointer;flex-shrink:0;transition:background .15s}
+.yt-dl-save:hover{background:var(--red)}
+.yt-modal-cancel{width:100%;margin-top:8px;padding:11px;background:none;border:none;border-radius:8px;color:var(--t2);font-size:14px;font-family:'Roboto',Arial,sans-serif;cursor:pointer;transition:all .15s}
+.yt-modal-cancel:hover{background:var(--s2);color:var(--t1)}
+
+/* ─── Keyframes & utils ───────────────────────────────────────────────────── */
+@keyframes spin  {to{transform:rotate(360deg)}}
+@keyframes blink {0%,100%{opacity:1}50%{opacity:0}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* scrollbar global */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--br);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--s3)}
+
+@media(max-width:600px){
+  .yt-logo-name{font-size:16px}
+  .vi-img{width:140px;height:79px}
+  .yt-channel{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+
+<!-- Loading Bar -->
+<div id="loadBar"></div>
+
+<!-- ─── Navigation ──────────────────────────────────────────────────────────── -->
+<nav class="yt-nav">
+  <!-- Logo -->
+  <a class="yt-logo" href="/">
+    <div class="yt-logo-box">
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M6.5 8.5l5-3-5-3v6z"/></svg>
+    </div>
+    <span class="yt-logo-name">AI Summarizer<sup>BETA</sup></span>
+  </a>
+
+  <!-- Search = URL input -->
+  <div class="yt-search-form">
+    <div class="yt-search-box">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="#aaa">
+        <path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+      </svg>
+      <input id="urlInput" type="url"
+             placeholder="Paste YouTube URL — watch?v=, youtu.be/, or /shorts/"
+             autocomplete="off"/>
+    </div>
+    <button class="yt-search-btn" id="analyzeBtn" onclick="startAnalyze()">
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Nav icons -->
+  <div class="yt-nav-icons">
+    <button class="yt-icon-btn" onclick="resetAll()" title="New analysis">
+      <svg width="24" height="24" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ─── Page ──────────────────────────────────────────────────────────────── -->
+<div class="yt-page">
+
+  <!-- Topic chip filter row -->
+  <div class="yt-chips-row">
+    <span class="yt-chip active">All</span>
+    <span class="yt-chip">🎤 Speech</span>
+    <span class="yt-chip">🎵 Music</span>
+    <span class="yt-chip">🎬 Mixed</span>
+    <span class="yt-chip">⚡ Shorts</span>
+    <span class="yt-chip">📝 AI Summary</span>
+    <span class="yt-chip">🔬 Beat Detection</span>
+    <span class="yt-chip">📊 Multi-signal</span>
+  </div>
+
+  <!-- Hero (idle state) -->
+  <div class="yt-hero" id="hero">
+    <h1>Analyze first.<br/><em>Download only the best moments.</em></h1>
+    <p>Paste any YouTube URL in the search bar above. Phase 1 reads the transcript &amp; generates a semantic AI summary — no download needed. Phase 2 fetches only your selected highlight clips.</p>
+  </div>
+
+  <!-- Two-column watch layout (shown after analysis) -->
+  <div class="yt-watch" id="ytWatch" style="display:none">
+
+    <!-- ── PRIMARY ──────────────────────────────────────────────────────── -->
+    <div class="yt-primary-col" id="primaryCol">
+
+      <!-- Video info card (pre-build) -->
+      <div class="vi-wrap" id="viWrap">
+        <img class="vi-img" id="viThumb" src="" alt="" onerror="this.style.display='none'"/>
+        <div class="vi-meta">
+          <div class="vi-t"><a id="viLink" href="#" target="_blank" rel="noopener">—</a></div>
+          <div class="vi-ch">
+            <div class="vi-av" id="viAv">?</div>
+            <span id="viChanName">—</span>
+          </div>
+          <div class="vi-chips">
+            <span class="vi-tag" id="viDur">⏱ —</span>
+            <span class="vi-tag" id="viViews">👁 —</span>
+            <span class="vi-tag" id="viDate">📅 —</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline card (analyze + build progress) -->
+      <div class="yt-pipeline" id="pipeCard">
+        <div class="yt-pipeline-header">
+          <span class="yt-pipeline-title" id="pipeTitle">Analyzing</span>
+          <div class="yt-bspin" id="pipeSpinner" style="display:none"></div>
+        </div>
+        <div class="pipeline-bar"><div class="pipeline-bar-fill ind" id="pipeFill"></div></div>
+
+        <!-- Phase 1 steps -->
+        <div class="pipe-steps" id="steps1">
+          <div class="pipe-step" id="s1"><div class="pipe-dot" id="d1">1</div><div class="pipe-name">Fetch</div></div>
+          <div class="pipe-line" id="c12"></div>
+          <div class="pipe-step" id="s2"><div class="pipe-dot" id="d2">2</div><div class="pipe-name">Analyze</div></div>
+        </div>
+        <!-- Phase 2 steps (hidden initially) -->
+        <div class="pipe-steps" id="steps2" style="display:none">
+          <div class="pipe-step" id="s3"><div class="pipe-dot" id="d3">3</div><div class="pipe-name">Download</div></div>
+          <div class="pipe-line" id="c34"></div>
+          <div class="pipe-step" id="s4"><div class="pipe-dot" id="d4">4</div><div class="pipe-name">Assemble</div></div>
+        </div>
+
+        <div class="pipe-log">
+          <div class="log-bar">
+            <span class="ld r"></span><span class="ld y"></span><span class="ld g"></span>
+            <span class="log-ttl" id="logTtl">output</span>
+          </div>
+          <div class="log-body" id="logBody"><span class="log-cur"></span></div>
+        </div>
+        <div class="yt-toast" id="toast"></div>
+      </div>
+
+      <!-- Watch primary (video player + info — shown after build) -->
+      <div id="watchPrimary" style="display:none">
+        <div class="yt-player-wrap">
+          <video id="vp" controls playsinline preload="metadata"></video>
+        </div>
+
+        <h1 class="yt-video-title" id="watchTitle">—</h1>
+
+        <div class="yt-info-row">
+          <div class="yt-views-date" id="watchMeta">—</div>
+          <div class="yt-actions">
+            <!-- Like/Dislike pill -->
+            <div class="yt-like-group">
+              <button class="yt-like-btn" id="likeBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                <span id="likeCount">—</span>
+              </button>
+              <button class="yt-dislike-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>
+              </button>
+            </div>
+            <!-- Share -->
+            <button class="yt-act-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+              Share
+            </button>
+            <!-- Download (opens modal) -->
+            <button class="yt-act-btn primary" onclick="openModal()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              Download
+            </button>
+            <!-- Save -->
+            <button class="yt-act-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg>
+              Save
+            </button>
+            <!-- More -->
+            <button class="yt-act-btn" style="padding:0 10px">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="yt-sep"></div>
+
+        <!-- Channel section -->
+        <div class="yt-channel">
+          <div class="yt-ch-avatar" id="watchAv">?</div>
+          <div class="yt-ch-info">
+            <div class="yt-ch-name" id="watchChan">
+              —
+              <!-- Verified checkmark -->
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="#aaaaaa"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            </div>
+            <div class="yt-ch-subs" id="watchSubs">—</div>
+          </div>
+          <!-- Subscribe + Bell -->
+          <button class="yt-subscribe-btn">Subscribe</button>
+          <button class="yt-icon-btn">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+          </button>
+        </div>
+
+        <div class="yt-sep"></div>
+
+        <!-- Description / AI Summary box -->
+        <div class="yt-desc" id="ytDesc" onclick="toggleDesc()" style="display:none">
+          <div class="yt-desc-meta">
+            <b id="descViewCount">—</b>&nbsp;
+            <span id="descDate">—</span>
+            &nbsp;<span class="yt-ai-badge">AI</span>
+          </div>
+          <div class="yt-desc-body" id="descBody">
+            —
+            <div class="yt-desc-fade"></div>
+          </div>
+          <span class="yt-desc-more" id="descMore">...more</span>
+        </div>
+
+        <!-- Tabs for highlight / original -->
+        <div style="display:flex;border-bottom:1px solid var(--br);margin-top:16px">
+          <button class="yt-act-btn" id="tHi" onclick="switchTab('hi')"
+            style="border-radius:0;height:48px;padding:0 16px;background:none;border-bottom:3px solid var(--t1);margin-bottom:-1px;font-weight:700">
+            ✂️ Highlight
+          </button>
+          <button class="yt-act-btn" id="tOr" onclick="switchTab('or')"
+            style="border-radius:0;height:48px;padding:0 16px;background:none;display:none;color:var(--t2)">
+            📹 Original
+          </button>
+        </div>
+
+      </div><!-- /watchPrimary -->
+
+    </div><!-- /primary col -->
+
+    <!-- ── SECONDARY / SIDEBAR ──────────────────────────────────────────── -->
+    <div class="yt-sidebar" id="sidebarCol">
+
+      <!-- Analysis result card -->
+      <div class="yt-sb-card" id="analysisCard" style="display:none">
+        <div class="yt-sb-card-header">
+          Analysis Result
+          <div class="yt-type-badge" id="typeBadge">—</div>
+        </div>
+        <div class="yt-sb-card-body">
+          <!-- Stats list -->
+          <div id="statsArea">
+            <div class="yt-stat-item">
+              <span class="yt-stat-label">Clips selected</span>
+              <span class="yt-stat-value" id="scClips">—</span>
+            </div>
+            <div class="yt-stat-item">
+              <span class="yt-stat-label">Highlight length</span>
+              <span class="yt-stat-value red" id="scDur">—</span>
+            </div>
+            <div class="yt-stat-item" id="scSizeRow" style="display:none">
+              <span class="yt-stat-label">File size</span>
+              <span class="yt-stat-value" id="scSize">—</span>
+            </div>
+          </div>
+          <!-- Create button -->
+          <div style="margin-top:16px" id="createWrap">
+            <button class="yt-create-btn" id="createBtn" onclick="startBuild()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              Create Highlight Reel
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Post-build stats card -->
+      <div class="yt-sb-card" id="statsCard" style="display:none">
+        <div class="yt-sb-card-header">
+          Video Stats
+          <div class="yt-type-badge" id="typeBadge2">—</div>
+        </div>
+        <div class="yt-sb-card-body">
+          <div class="yt-stat-item">
+            <span class="yt-stat-label">Duration</span>
+            <span class="yt-stat-value red" id="sc2Dur">—</span>
+          </div>
+          <div class="yt-stat-item">
+            <span class="yt-stat-label">Scenes</span>
+            <span class="yt-stat-value" id="sc2Clips">—</span>
+          </div>
+          <div class="yt-stat-item">
+            <span class="yt-stat-label">File size</span>
+            <span class="yt-stat-value" id="sc2Size">—</span>
+          </div>
+          <div class="yt-stat-item">
+            <span class="yt-stat-label">Quality</span>
+            <span class="yt-stat-value" style="font-size:13px;color:#72e072">Original</span>
+          </div>
+          <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
+            <button class="yt-create-btn" onclick="openModal()" style="border-radius:18px;height:36px;font-size:14px">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              Save Video
+            </button>
+            <button class="yt-act-btn" onclick="resetAll()" style="justify-content:center;width:100%">
+              ↩ Analyze Another
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /sidebar -->
+
+  </div><!-- /yt-watch -->
+
+</div><!-- /yt-page -->
+
+<!-- Download Modal -->
+<div class="yt-modal-bg" id="modalBg" onclick="bgClick(event)">
+  <div class="yt-modal">
+    <div class="yt-modal-title">Save video</div>
+    <div class="yt-modal-sub">Choose which version to download</div>
+    <div class="yt-dl-row">
+      <div class="yt-dl-ico r">✂️</div>
+      <div style="flex:1;min-width:0">
+        <div class="yt-dl-name">Highlight Reel</div>
+        <div class="yt-dl-meta">AI-curated · <span id="dlDur">—</span>s · <span id="dlSize">—</span> MB</div>
+      </div>
+      <button class="yt-dl-save" onclick="dl('highlight')">Save ↓</button>
+    </div>
+    <div class="yt-dl-row" id="dlOrigRow" style="display:none">
+      <div class="yt-dl-ico g">📹</div>
+      <div style="flex:1;min-width:0">
+        <div class="yt-dl-name">Original Video</div>
+        <div class="yt-dl-meta">Full unedited video</div>
+      </div>
+      <button class="yt-dl-save" onclick="dl('original')">Save ↓</button>
+    </div>
+    <button class="yt-modal-cancel" onclick="closeModal()">Cancel</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+let jid=null,es=null,phase=1,hasRaw=false,descExpanded=false;
+
+const TYPE={
+  speech:{e:'🎤',l:'Speech',     d:'7-signal transcript',c:'speech'},
+  music: {e:'🎵',l:'Music',      d:'Beat + energy',      c:'music'},
+  mixed: {e:'🎬',l:'Mixed',      d:'Hybrid analysis',    c:'mixed'},
+  short: {e:'⚡',l:'Short',       d:'30s highlight',      c:'short'},
+};
+
+// loading bar
+function lbStart(){const b=document.getElementById('loadBar');b.style.opacity='1';b.className='ind';b.style.width=''}
+function lbDone(){const b=document.getElementById('loadBar');b.className='';b.style.width='100%';setTimeout(()=>{b.style.opacity='0';b.style.width='0'},600)}
+
+// Steps
+const STEPS1=[
+  {id:'s1',conn:null, act:/Fetching transcript/,                           dn:/Got \d+ transcript/},
+  {id:'s2',conn:'c12',act:/Scoring|Analyzing|audio|Generating|Summary/,   dn:/Selected \d+ clips|Summary generated/},
+];
+const STEPS2=[
+  {id:'s3',conn:null, act:/Downloading video/,             dn:/Download complete|cached video/},
+  {id:'s4',conn:'c34',act:/Cutting \d+ clips|Assembling/,  dn:/🎉 Done/},
+];
+function setStep(id,state){
+  const el=document.getElementById(id);
+  const dot=document.getElementById(id.replace('s','d'));
+  const n=id.replace('s','');
+  el.className='pipe-step'+(state?' '+state:'');
+  if(state==='a') dot.innerHTML='<div class="s-dot"></div>';
+  else if(state==='d') dot.textContent='✓';
+  else if(state==='e') dot.textContent='✕';
+  else dot.textContent=n;
+}
+function setLine(id,s){
+  if(!id)return;
+  const el=document.getElementById(id);
+  if(el)el.className='pipe-line'+(s?' '+s:'');
+}
+function updSteps(msg,steps){
+  steps.forEach(({id,conn,act,dn})=>{
+    if(dn.test(msg)){setStep(id,'d');setLine(conn,'d')}
+    else if(act.test(msg)){setStep(id,'a');setLine(conn,'a')}
+  });
+}
+function clearSteps(ids){ids.forEach(id=>setStep(id,''))}
+
+// Log
+function log(msg){
+  const b=document.getElementById('logBody');
+  const cur=b.querySelector('.log-cur');
+  const d=document.createElement('div');
+  d.className='log-ln'+(msg.startsWith('✅')||msg.startsWith('🎉')?' ok':msg.startsWith('🧠')||msg.startsWith('📝')||msg.startsWith('📊')||msg.startsWith('📥')?' hi':'');
+  d.textContent='›  '+msg;
+  b.insertBefore(d,cur);
+  b.scrollTop=b.scrollHeight;
+}
+
+// Toast
+function toast(cls,html){const t=document.getElementById('toast');t.className='yt-toast on '+cls;t.innerHTML=html}
+function clearToast(){document.getElementById('toast').className='yt-toast'}
+
+// Pipeline fill
+function pipeFill(pct){const f=document.getElementById('pipeFill');f.className='pipeline-bar-fill';f.style.width=pct+'%'}
+function pipeInd(){const f=document.getElementById('pipeFill');f.className='pipeline-bar-fill ind';f.style.width=''}
+
+// Video info card
+function showInfo(d){
+  const t=document.getElementById('viThumb');
+  if(d.thumbnail){t.src=d.thumbnail;t.style.display=''}
+  document.getElementById('viLink').textContent=d.title||'—';
+  document.getElementById('viLink').href=d.video_url||'#';
+  const init=(d.channel||'?').replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase()||'?';
+  document.getElementById('viAv').textContent=init;
+  document.getElementById('viChanName').textContent=d.channel||'—';
+  document.getElementById('viDur').textContent='⏱ '+fmtDur(d.duration);
+  document.getElementById('viViews').textContent='👁 '+fmtN(d.view_count)+' views';
+  document.getElementById('viDate').textContent='📅 '+fmtDate(d.upload_date);
+  document.getElementById('viWrap').classList.add('on');
+}
+
+// Phase 1: Analyze
+function startAnalyze(){
+  const url=document.getElementById('urlInput').value.trim();
+  if(!url){document.getElementById('urlInput').focus();return}
+  phase=1;
+  document.getElementById('analyzeBtn').disabled=true;
+  document.getElementById('hero').style.display='none';
+  document.getElementById('ytWatch').style.display='grid';
+  document.getElementById('logBody').innerHTML='<span class="log-cur"></span>';
+  document.getElementById('watchPrimary').style.display='none';
+  document.getElementById('statsCard').style.display='none';
+  document.getElementById('analysisCard').style.display='none';
+  document.getElementById('pipeCard').style.display='block';
+  document.getElementById('steps1').style.display='flex';
+  document.getElementById('steps2').style.display='none';
+  document.getElementById('pipeTitle').textContent='Analyzing…';
+  document.getElementById('pipeSpinner').style.display='block';
+  clearSteps(['s1','s2','s3','s4']);setLine('c12','');setLine('c34','');
+  clearToast();pipeInd();lbStart();
+
+  toast('run','<div class="yt-bspin"></div>&nbsp; Fetching transcript &amp; metadata…');
+
+  fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})})
+    .then(r=>r.json())
+    .then(({job_id,error})=>{if(error){showErr(error);return}jid=job_id;listenSSE(job_id)})
+    .catch(e=>showErr(e.message));
+}
+
+function listenSSE(id){
+  if(es)es.close();
+  es=new EventSource('/progress/'+id);
+  es.onmessage=e=>{
+    const d=JSON.parse(e.data);
+    if(d.type==='log'){log(d.msg);updSteps(d.msg,phase===1?STEPS1:STEPS2)}
+    else if(d.type==='meta')     showInfo(d);
+    else if(d.type==='analyzed') showAnalyzed(d);
+    else if(d.type==='done')    {es.close();showResult(id,d)}
+    else if(d.type==='error')   {es.close();showErr(d.msg)}
+  };
+  es.onerror=()=>{es.close();if(document.getElementById('toast').classList.contains('run'))showErr('Connection lost.')};
+}
+
+function showAnalyzed(d){
+  pipeFill(50);
+  document.getElementById('pipeTitle').textContent='Analysis complete';
+  document.getElementById('pipeSpinner').style.display='none';
+  setStep('s1','d');setLine('c12','d');setStep('s2','d');
+
+  const tc=TYPE[d.video_type]||TYPE.mixed;
+  document.getElementById('typeBadge').textContent=tc.e+' '+tc.l;
+  document.getElementById('typeBadge').className='yt-type-badge '+tc.c;
+  document.getElementById('scClips').textContent=d.clips;
+  document.getElementById('scDur').textContent=d.duration+'s';
+  document.getElementById('analysisCard').style.display='block';
+
+  // Populate watch-page description with summary (ready for when build finishes)
+  if(d.summary){
+    document.getElementById('descBody').innerHTML=d.summary+'<div class="yt-desc-fade"></div>';
+    document.getElementById('ytDesc').style.display='';
+  }
+
+  toast('ok','✅ Analysis complete — '+d.clips+' clips selected (~'+d.duration+'s)');
+  document.getElementById('analyzeBtn').disabled=false;
+  lbDone();
+}
+
+// Phase 2: Build
+function startBuild(){
+  phase=2;
+  document.getElementById('createBtn').disabled=true;
+  document.getElementById('steps2').style.display='flex';
+  document.getElementById('pipeTitle').textContent='Building highlight reel…';
+  document.getElementById('pipeSpinner').style.display='block';
+  clearSteps(['s3','s4']);setLine('c34','');
+  pipeInd();lbStart();
+  toast('run','<div class="yt-bspin"></div>&nbsp; Downloading video &amp; assembling clips…');
+
+  fetch('/build/'+jid,{method:'POST'})
+    .then(r=>r.json())
+    .then(({ok,error})=>{if(error)showErr(error)})
+    .catch(e=>showErr(e.message));
+}
+
+function showResult(id,d){
+  hasRaw=!!d.has_raw;
+  const tc=TYPE[d.video_type]||TYPE.mixed;
+  pipeFill(100);
+  document.getElementById('pipeTitle').textContent='Done!';
+  document.getElementById('pipeSpinner').style.display='none';
+  setStep('s3','d');setLine('c34','d');setStep('s4','d');
+
+  // Watch page
+  document.getElementById('watchTitle').textContent='✂️ '+(d.title||'Highlight Reel')+' — AI Summarizer';
+  document.getElementById('watchMeta').innerHTML='<b>'+d.clips+' scenes</b> • '+d.duration+'s • '+d.size_mb+' MB • Original Quality';
+  const init=((document.getElementById('viChanName').textContent)||'?').replace(/[^a-zA-Z]/g,'').slice(0,2).toUpperCase()||'?';
+  document.getElementById('watchAv').textContent=init;
+  document.getElementById('watchChan').innerHTML=document.getElementById('viChanName').textContent+'<svg width="14" height="14" viewBox="0 0 24 24" fill="#aaaaaa"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
+  document.getElementById('watchSubs').textContent=document.getElementById('viViews').textContent;
+  document.getElementById('likeCount').textContent=fmtN(0)||'Like';
+  document.getElementById('descViewCount').innerHTML='<b>'+d.clips+' scenes</b>';
+  document.getElementById('descDate').textContent=document.getElementById('viDate').textContent;
+
+  // Sidebar stats
+  document.getElementById('typeBadge2').textContent=tc.e+' '+tc.l;
+  document.getElementById('typeBadge2').className='yt-type-badge '+tc.c;
+  document.getElementById('sc2Dur').textContent=d.duration+'s';
+  document.getElementById('sc2Clips').textContent=d.clips;
+  document.getElementById('sc2Size').textContent=d.size_mb+' MB';
+  document.getElementById('dlDur').textContent=d.duration;
+  document.getElementById('dlSize').textContent=d.size_mb;
+
+  // Tabs
+  document.getElementById('tOr').style.display=hasRaw?'':'none';
+  document.getElementById('dlOrigRow').style.display=hasRaw?'':'none';
+
+  // Player
+  document.getElementById('vp').src='/video/'+id;
+  document.getElementById('vp').load();
+
+  // Show/hide sections
+  document.getElementById('pipeCard').style.display='none';
+  document.getElementById('watchPrimary').style.display='block';
+  document.getElementById('analysisCard').style.display='none';
+  document.getElementById('statsCard').style.display='block';
+
+  toast('ok','🎉 Your highlight reel is ready!');
+  lbDone();
+  setTimeout(()=>document.getElementById('watchPrimary').scrollIntoView({behavior:'smooth',block:'start'}),200);
+}
+
+function showErr(msg){
+  clearToast();toast('er','❌ '+msg);
+  document.getElementById('analyzeBtn').disabled=false;
+  document.getElementById('createBtn').disabled=false;
+  document.getElementById('pipeSpinner').style.display='none';
+  pipeFill(0);lbDone();
+  log('ERROR: '+msg);
+}
+
+// Description toggle
+function toggleDesc(){
+  descExpanded=!descExpanded;
+  document.getElementById('descBody').className='yt-desc-body'+(descExpanded?' expanded':'');
+  document.getElementById('descMore').textContent=descExpanded?'Show less':'...more';
+}
+
+// Tabs
+function switchTab(t){
+  const hi=document.getElementById('tHi'),or=document.getElementById('tOr');
+  hi.style.borderBottom=t==='hi'?'3px solid var(--t1)':'none';
+  hi.style.color=t==='hi'?'var(--t1)':'var(--t2)';
+  or.style.borderBottom=t==='or'?'3px solid var(--t1)':'none';
+  or.style.color=t==='or'?'var(--t1)':'var(--t2)';
+  document.getElementById('vp').src=(t==='hi'?'/video/':'/raw/')+jid;
+  document.getElementById('vp').load();
+}
+
+// Modal
+function openModal(){document.getElementById('modalBg').classList.add('on')}
+function closeModal(){document.getElementById('modalBg').classList.remove('on')}
+function bgClick(e){if(e.target===document.getElementById('modalBg'))closeModal()}
+function dl(w){
+  const a=document.createElement('a');
+  a.href='/download/'+jid+'/'+w;a.download=w==='highlight'?'highlight.mp4':'original.mp4';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);closeModal();
+}
+
+// Reset
+function resetAll(){
+  document.getElementById('hero').style.display='';
+  document.getElementById('ytWatch').style.display='none';
+  document.getElementById('viWrap').classList.remove('on');
+  clearToast();clearSteps(['s1','s2','s3','s4']);setLine('c12','');setLine('c34','');
+  document.getElementById('logBody').innerHTML='<span class="log-cur"></span>';
+  document.getElementById('urlInput').value='';
+  document.getElementById('vp').src='';
+  document.getElementById('createBtn').disabled=false;
+  pipeFill(0);lbDone();
+  jid=null;phase=1;hasRaw=false;descExpanded=false;
+  window.scrollTo({top:0,behavior:'smooth'});
+  document.getElementById('urlInput').focus();
+}
+
+// Helpers
+function fmtDur(s){if(!s)return'—';const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return h>0?`${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`:`${m}:${String(ss).padStart(2,'0')}`}
+function fmtN(v){if(!v)return'—';if(v>=1e9)return(v/1e9).toFixed(1)+'B';if(v>=1e6)return(v/1e6).toFixed(1)+'M';if(v>=1e3)return(v/1e3).toFixed(0)+'K';return String(v)}
+function fmtDate(d){if(!d||d.length!==8)return'—';try{return new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'})}catch{return'—'}}
+
+document.getElementById('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')startAnalyze()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+</script>
+</body>
+</html>
